@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { type Song, songs } from "../../data/songs";
+import { type Song } from "../../data/songs";
 import { Play, Pause, Rewind, FastForward, HeartPulse, Sparkles, Music2 } from "lucide-react";
 
 type LrcWord = {
@@ -112,17 +112,11 @@ const parseLrc = (raw: string): LrcLine[] => {
   return entries;
 };
 
-const BACKEND_DEMO_FALLBACK = songs;
-
 export default function SongPage() {
   const params = useParams<{ id?: string | string[] }>();
   const songId = Array.isArray(params.id) ? params.id[0] : params.id;
-  const [song, setSong] = useState<(typeof songs)[number] | null>(
-    songId ? BACKEND_DEMO_FALLBACK.find((item) => item.id === songId) ?? null : null
-  );
-  const [isLoadingSong, setIsLoadingSong] = useState(
-    Boolean(songId && !BACKEND_DEMO_FALLBACK.some((item) => item.id === songId))
-  );
+  const [song, setSong] = useState<Song | null>(null);
+  const [isLoadingSong, setIsLoadingSong] = useState(Boolean(songId));
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -171,7 +165,7 @@ export default function SongPage() {
   };
 
   useEffect(() => {
-    if (!songId || BACKEND_DEMO_FALLBACK.some((item) => item.id === songId)) {
+    if (!songId) {
       return;
     }
 
@@ -185,7 +179,7 @@ export default function SongPage() {
 
         if (!response.ok) return;
 
-        const payload = (await response.json()) as (typeof songs)[number];
+        const payload = (await response.json()) as Song;
         if (!controller.signal.aborted) {
           setSong(payload);
           setLoadError(null);

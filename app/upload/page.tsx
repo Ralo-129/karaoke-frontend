@@ -5,7 +5,6 @@ import { useState, useMemo, useEffect } from "react";
 import { CloudUpload, Heart, Sparkles, Music } from "lucide-react";
 
 const CHUNK_SIZE = 3 * 1024 * 1024; // 3MB chunks (more conservative than 5MB)
-const MAX_PARALLEL_CHUNKS = 3;
 
 type UploadState = {
   status: "idle" | "uploading" | "success" | "error";
@@ -362,6 +361,10 @@ export default function UploadPage() {
                     placeholder="Pega aqui la letra o el archivo LRC"
                     onChange={(event) => setLyrics(event.target.value)}
                   />
+                  <p className="text-xs text-zinc-500">
+                    💡 Si pegas un <strong>LRC</strong> (letra con tiempos tipo <code>[00:12.34]</code>),
+                    se usa tal cual y se salta la transcripción con IA (más rápido y gasta menos).
+                  </p>
                 </div>
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">

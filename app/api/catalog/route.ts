@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server";
+import { BACKEND_URL, getSupabaseServer, mapSongRow, normalizeUrl } from "../../lib/catalog";
 
-const BACKEND_URL = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "").replace(
-  /\/+$/,
-  ""
-);
-
-const normalizeUrl = (value: unknown) => {
-  if (typeof value !== "string" || !value) return undefined;
-  if (value.startsWith("http")) return value;
-  // If BACKEND_URL is configured, prefix it. Otherwise return the relative path
-  // so the browser will request it from the current origin.
-  return BACKEND_URL ? `${BACKEND_URL}${value}` : value;
-};
+export const dynamic = "force-dynamic";
 
 export async function GET() {
+  // Preferred path: read directly from Supabase so the catalog loads even when
+  // the heavy backend is turned off.
+  const supabase = getSupabaseServer();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("songs")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (!error && data) {
+      return NextResponse.json(data.map(mapSongRow));
+    }
+    // On error, fall through to the backend proxy below.
+  }
+
+  // Fallback: proxy the backend (used when Supabase env vars are not set).
   if (!BACKEND_URL) {
     return NextResponse.json({ error: "Backend URL no configurada." }, { status: 500 });
   }

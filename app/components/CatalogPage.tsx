@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Music2, 
@@ -13,11 +13,11 @@ import {
   HeartPulse,
   Plus
 } from "lucide-react";
-import { type Song, songs as demoSongs } from "../data/songs";
+import { type Song } from "../data/songs";
 
 export default function CatalogPage() {
   const router = useRouter();
-  const [songs, setSongs] = useState<Song[]>(demoSongs);
+  const [songs, setSongs] = useState<Song[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"todo" | "pop" | "rock" | "anime" | "baladas">("todo");
   const [isLoading, setIsLoading] = useState(true);
@@ -31,30 +31,38 @@ export default function CatalogPage() {
     }
   }, [searchQuery, router]);
 
-  useEffect(() => {
-    const fetchSongs = async () => {
-      try {
-        const response = await fetch("/api/catalog");
-        if (response.ok) {
-          const remoteSongs = (await response.json()) as Song[];
-          // Combine demo songs with remote songs, filtering out duplicates by ID
-          const combined = [...remoteSongs, ...demoSongs.filter(ds => !remoteSongs.some(rs => rs.id === ds.id))];
-          setSongs(combined);
-          setRemoteSongIds(new Set(remoteSongs.map(s => s.id)));
-        }
-      } catch (error) {
-        console.error("Error fetching songs:", error);
-      } finally {
-        setIsLoading(false);
+  const fetchSongs = useCallback(async () => {
+    try {
+      const response = await fetch("/api/catalog");
+      if (response.ok) {
+        const remoteSongs = (await response.json()) as Song[];
+        setSongs(remoteSongs);
+        setRemoteSongIds(new Set(remoteSongs.map(s => s.id)));
       }
-    };
+    } catch (error) {
+      console.error("Error fetching songs:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
+  // Initial load.
+  useEffect(() => {
     fetchSongs();
-    
-    // Polling interval for processing songs
+  }, [fetchSongs]);
+
+  // Only poll while at least one song is still processing — once everything is
+  // ready we stop hitting the backend (which may be a low-resource / offline box).
+  const hasProcessing = useMemo(
+    () => songs.some((song) => song.status === "processing"),
+    [songs]
+  );
+
+  useEffect(() => {
+    if (!hasProcessing) return;
     const interval = setInterval(fetchSongs, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [hasProcessing, fetchSongs]);
 
   const filteredSongs = useMemo(() => {
     return songs.filter((song) => {

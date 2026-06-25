@@ -1,5 +1,5 @@
-import CatalogPage from "../components/CatalogPage";
+import { redirect } from "next/navigation";
 
 export default function MusicaPage() {
-  return <CatalogPage />;
+  redirect("/catalogo");
 }

@@ -11,5 +11,3 @@ export type Song = {
   instrumentalUrl?: string;
   status?: "processing" | "completed";
 };
-
-export const songs: Song[] = [];

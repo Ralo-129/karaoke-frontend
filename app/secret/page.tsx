@@ -1,6 +1,5 @@
 import MemoriesGallery from "../components/MemoriesGallery";
 import Link from "next/link";
-import { Heart, Sparkles } from "lucide-react";
 
 export default function SecretPage() {
   return (
