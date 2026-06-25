@@ -24,17 +24,17 @@ const PROCESSING_OPTIONS: Array<{
   {
     value: "rapido",
     label: "Rápido",
-    description: "Whisper tiny + Demucs ligero. Prioriza velocidad y RAM baja.",
+    description: "Letra siempre al máximo. Instrumental rápido (prioriza velocidad).",
   },
   {
     value: "balanceado",
     label: "Balanceado",
-    description: "Whisper base + mejor separación. Buen punto medio.",
+    description: "Letra siempre al máximo. Instrumental con mejor separación. Buen punto medio.",
   },
   {
     value: "maxima_calidad",
     label: "Máxima calidad",
-    description: "Whisper small + mayor fidelidad de instrumental y letra.",
+    description: "Letra siempre al máximo. Instrumental con la mayor fidelidad (más lento).",
   },
 ];
 
@@ -383,7 +383,7 @@ export default function UploadPage() {
                       Modo de procesamiento
                     </p>
                     <p className="mt-1 text-xs text-zinc-500">
-                      La calidad cambia la IA y el instrumental. El video original se conserva.
+                      La letra siempre sale al máximo. Esto solo cambia la calidad/velocidad del instrumental. El video original se conserva.
                     </p>
                   </div>
                   <div className="grid gap-3 md:grid-cols-3">
