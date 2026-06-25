@@ -362,8 +362,9 @@ export default function UploadPage() {
                     onChange={(event) => setLyrics(event.target.value)}
                   />
                   <p className="text-xs text-zinc-500">
-                    💡 Si pegas un <strong>LRC</strong> (letra con tiempos tipo <code>[00:12.34]</code>),
-                    se usa tal cual y se salta la transcripción con IA (más rápido y gasta menos).
+                    💡 Pega la <strong>letra real</strong> (de cualquier web) y la usaremos como base:
+                    las palabras quedan exactas y solo sincronizamos los tiempos. Si pegas un{" "}
+                    <strong>LRC</strong> con tiempos (<code>[00:12.34]</code>), se usa tal cual.
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
