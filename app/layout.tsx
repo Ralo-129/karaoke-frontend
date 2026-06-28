@@ -43,7 +43,7 @@ export default function RootLayout({
 
         {/* Floating Romantic Header */}
         <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center justify-center pointer-events-none">
-          <div className="rounded-full border-2 border-white/60 bg-white/70 px-6 py-2 shadow-[0_5px_15px_rgb(251,113,133,0.15)] backdrop-blur-md pointer-events-auto">
+          <div className="rounded-full border-2 border-white/60 bg-white/95 px-6 py-2 shadow-[0_5px_15px_rgb(251,113,133,0.15)] pointer-events-auto">
             <p className="text-sm font-bold tracking-widest text-rose-500 uppercase">
               R + S ♾️
             </p>

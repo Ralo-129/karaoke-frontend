@@ -144,6 +144,28 @@ export default function UploadPage() {
   });
 
   const [pollingJobId, setPollingJobId] = useState<string | null>(null);
+  const [allArtists, setAllArtists] = useState<string[]>([]);
+  const [showArtistDropdown, setShowArtistDropdown] = useState(false);
+
+  // Fetch existing artists once on mount
+  useEffect(() => {
+    fetch("/api/artists")
+      .then((r) => r.json())
+      .then((data: string[]) => setAllArtists(data))
+      .catch(() => {});
+  }, []);
+
+  const filteredArtists = useMemo(() => {
+    if (!artist.trim()) return allArtists;
+    return allArtists.filter((a) =>
+      a.toLowerCase().includes(artist.toLowerCase())
+    );
+  }, [artist, allArtists]);
+
+  const artistExactMatch = useMemo(
+    () => allArtists.some((a) => a.toLowerCase() === artist.toLowerCase()),
+    [artist, allArtists]
+  );
 
   const suggestedTitle = useMemo(() => {
     if (!selectedFile) return "";
@@ -321,12 +343,50 @@ export default function UploadPage() {
                     <label className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
                       Artista
                     </label>
-                    <input
-                      className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm text-zinc-800"
-                      value={artist}
-                      placeholder="Nombre del artista"
-                      onChange={(event) => setArtist(event.target.value)}
-                    />
+                    <div className="relative">
+                      <input
+                        className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm text-zinc-800"
+                        value={artist}
+                        placeholder="Nombre del artista"
+                        autoComplete="off"
+                        onChange={(e) => {
+                          setArtist(e.target.value);
+                          setShowArtistDropdown(true);
+                        }}
+                        onFocus={() => setShowArtistDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowArtistDropdown(false), 150)}
+                      />
+                      {showArtistDropdown && (filteredArtists.length > 0 || (artist.trim() && !artistExactMatch)) && (
+                        <div className="absolute z-50 mt-1 w-full rounded-xl border border-black/10 bg-white shadow-lg overflow-hidden">
+                          {filteredArtists.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm text-zinc-800 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setArtist(name);
+                                setShowArtistDropdown(false);
+                              }}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                          {artist.trim() && !artistExactMatch && (
+                            <button
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm font-medium text-rose-500 hover:bg-rose-50 transition-colors border-t border-black/5"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setShowArtistDropdown(false);
+                              }}
+                            >
+                              Crear: <span className="font-bold">{artist}</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="relative flex flex-col items-center justify-center rounded-[2rem] border-4 border-dashed border-rose-200 bg-white/40 py-12 transition-all hover:bg-rose-50 hover:border-rose-300">

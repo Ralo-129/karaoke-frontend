@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 // Generate static initial positions to avoid hydration mismatches, 
 // then randomize slightly on the client.
-const PARTICLE_COUNT = 15;
+const PARTICLE_COUNT = 8;
 
 export default function FloatingParticles() {
   const [particles, setParticles] = useState<
@@ -33,7 +33,7 @@ export default function FloatingParticles() {
       {particles.map((p) => (
         <div
           key={p.id}
-          className="absolute -bottom-10 animate-float-up rounded-full bg-rose-300 blur-[1px]"
+          className="absolute -bottom-10 animate-float-up rounded-full bg-rose-300"
           style={{
             left: p.left,
             width: p.size,
