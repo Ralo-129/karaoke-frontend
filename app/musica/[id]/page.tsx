@@ -140,26 +140,51 @@ export default function SongPage() {
     if (!songId || isSeparatingOnDemand) return;
     setIsSeparatingOnDemand(true);
     try {
-      const response = await fetch(`/api/catalog/${songId}/separate`, {
-        method: "POST"
-      });
-      if (response.ok) {
-        const data = await response.json();
-        // Update local song state with new instrumental URL
-        setSong(prev => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            instrumentalUrl: data.instrumental_url
-          };
-        });
-      } else {
+      const response = await fetch(`/api/catalog/${songId}/separate`, { method: "POST" });
+      if (!response.ok) {
         alert("Ocurrió un error al procesar la instrumental. Inténtalo de nuevo. 💕");
+        setIsSeparatingOnDemand(false);
+        return;
       }
+      const data = await response.json();
+
+      if (data.status === "ok" && data.instrumental_url) {
+        // Ya tenía instrumental — actualización directa sin polling
+        setSong(prev => prev ? { ...prev, instrumentalUrl: data.instrumental_url } : null);
+        setIsSeparatingOnDemand(false);
+        return;
+      }
+
+      // Backend procesando en background — arrancar polling
+      const pollId = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/jobs/${songId}`, { cache: "no-store" });
+          if (!res.ok) return;
+          const status = await res.json();
+          setJobStatus(status);
+
+          if (status.status === "completed") {
+            clearInterval(pollId);
+            const songRes = await fetch(`/api/catalog/${songId}`, { cache: "no-store" });
+            if (songRes.ok) {
+              const updated = await songRes.json();
+              setSong(updated);
+            }
+            setJobStatus(null);
+            setIsSeparatingOnDemand(false);
+          } else if (status.status === "error" || status.status === "failed") {
+            clearInterval(pollId);
+            setJobStatus(null);
+            setIsSeparatingOnDemand(false);
+            alert("Error al generar la instrumental.");
+          }
+        } catch (e) {
+          console.error("Poll error:", e);
+        }
+      }, 5000);
     } catch (err) {
       console.error(err);
       alert("Error de red al procesar la instrumental.");
-    } finally {
       setIsSeparatingOnDemand(false);
     }
   };

@@ -97,9 +97,16 @@ export async function POST(
     );
   }
 
-  const payload = (await response.json()) as { instrumental_url: string; [key: string]: unknown };
-  return NextResponse.json({
-    ...payload,
-    instrumental_url: normalizeUrl(payload.instrumental_url),
-  });
+  const payload = (await response.json()) as Record<string, unknown>;
+
+  // Backend devolvió la URL directamente (canción ya tenía instrumental)
+  if (payload.status === "ok" && typeof payload.instrumental_url === "string") {
+    return NextResponse.json({
+      ...payload,
+      instrumental_url: normalizeUrl(payload.instrumental_url),
+    });
+  }
+
+  // Job en background — pasar tal cual { status: "processing", job_id, message }
+  return NextResponse.json(payload);
 }
