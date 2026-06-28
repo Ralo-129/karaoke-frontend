@@ -105,7 +105,7 @@ function SongCard({
   const isProcessing = song.status === "processing";
   return (
     <div
-      className={`flex h-full flex-col justify-between gap-4 rounded-[2.5rem] border-2 border-white/60 bg-white/70 p-6 text-left transition-all hover:-translate-y-1 hover:bg-white/90 hover:shadow-[0_10px_40px_rgb(251,113,133,0.2)] backdrop-blur-md ${
+      className={`flex h-full flex-col justify-between gap-4 rounded-[2.5rem] border-2 border-white/60 bg-white/85 p-6 text-left transition-all hover:-translate-y-1 hover:bg-white/95 hover:shadow-[0_10px_40px_rgb(251,113,133,0.2)] ${
         isProcessing ? "opacity-90" : ""
       }`}
     >
@@ -410,7 +410,7 @@ export default function CatalogPage() {
           <div className="relative group">
             <Search className="absolute left-6 top-1/2 h-5 w-5 -translate-y-1/2 text-rose-300 transition-colors group-focus-within:text-rose-500" />
             <input
-              className="w-full rounded-[2rem] border-2 border-white/60 bg-white/50 px-14 py-5 text-lg font-medium text-zinc-800 placeholder:text-rose-200 focus:bg-white/80 focus:outline-none focus:ring-4 focus:ring-rose-100/50 backdrop-blur-md transition-all shadow-sm"
+              className="w-full rounded-[2rem] border-2 border-white/60 bg-white/85 px-14 py-5 text-lg font-medium text-zinc-800 placeholder:text-rose-200 focus:bg-white/95 focus:outline-none focus:ring-4 focus:ring-rose-100/50 transition-all shadow-sm"
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Busca por título, artista o etiqueta..."
               type="text"
@@ -624,7 +624,7 @@ export default function CatalogPage() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-[2rem] border-2 border-dashed border-rose-200 bg-white/40 px-4 py-16 text-center text-rose-400 backdrop-blur-sm">
+    <div className="flex flex-col items-center justify-center gap-4 rounded-[2rem] border-2 border-dashed border-rose-200 bg-white/70 px-4 py-16 text-center text-rose-400">
       <Music2 className="h-12 w-12 opacity-50" />
       <p className="text-lg font-medium">Aún no tenemos canciones aquí 🥺</p>
       <p className="text-sm text-rose-300">No hay canciones en el catalogo.</p>
