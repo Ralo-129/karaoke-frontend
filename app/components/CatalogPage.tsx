@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Music2,
@@ -248,7 +248,7 @@ export default function CatalogPage() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<
-    "todo" | "pop" | "rock" | "anime" | "baladas" | "por-artista"
+    "todo" | "por-artista" | "pop" | "rock" | "anime" | "baladas"
   >("todo");
   const [isLoading, setIsLoading] = useState(true);
   const [remoteSongIds, setRemoteSongIds] = useState<Set<string>>(new Set());
@@ -385,6 +385,11 @@ export default function CatalogPage() {
   // ── Shared card props ──
   const cardProps = { remoteSongIds, deletingSongId, onDelete: handleDeleteSong };
 
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const scrollTabs = (dir: "left" | "right") => {
+    tabsRef.current?.scrollBy({ left: dir === "right" ? 200 : -200, behavior: "smooth" });
+  };
+
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#fff1f2,_#fce7f3_50%,_#fdf2f8_100%)]">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-12">
@@ -418,12 +423,33 @@ export default function CatalogPage() {
             />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-6">
-            <div className="flex flex-wrap gap-3">
-              {(["todo", "pop", "rock", "anime", "baladas", "por-artista"] as const).map((tab) => (
+          <div className="flex justify-end">
+            <Link
+              href="/upload"
+              className="flex items-center gap-2 rounded-full bg-rose-500 px-8 py-3 text-sm font-bold uppercase tracking-widest text-white shadow-[0_10px_20px_rgb(251,113,133,0.3)] transition-all hover:bg-rose-600 hover:scale-105 active:scale-95"
+            >
+              <Plus className="h-5 w-5" />
+              Subir Nueva Canción
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => scrollTabs("left")}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-white/40 bg-white/60 text-rose-400 text-lg font-bold transition hover:bg-rose-50"
+              aria-label="Scroll izquierda"
+            >
+              ‹
+            </button>
+            <div
+              ref={tabsRef}
+              className="flex gap-3 overflow-x-auto [&::-webkit-scrollbar]:hidden"
+            >
+              {(["todo", "por-artista", "pop", "rock", "anime", "baladas"] as const).map((tab) => (
                 <button
                   key={tab}
-                  className={`rounded-full px-8 py-3 text-sm font-bold uppercase tracking-widest transition-all ${
+                  className={`shrink-0 rounded-full px-8 py-3 text-sm font-bold uppercase tracking-widest transition-all ${
                     activeTab === tab
                       ? "bg-zinc-900 text-white shadow-lg shadow-zinc-200 scale-105"
                       : "bg-white/60 text-rose-400 hover:bg-rose-50 border-2 border-white/40"
@@ -435,14 +461,14 @@ export default function CatalogPage() {
                 </button>
               ))}
             </div>
-
-            <Link
-              href="/upload"
-              className="flex items-center gap-2 rounded-full bg-rose-500 px-8 py-3 text-sm font-bold uppercase tracking-widest text-white shadow-[0_10px_20px_rgb(251,113,133,0.3)] transition-all hover:bg-rose-600 hover:scale-105 active:scale-95"
+            <button
+              type="button"
+              onClick={() => scrollTabs("right")}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-white/40 bg-white/60 text-rose-400 text-lg font-bold transition hover:bg-rose-50"
+              aria-label="Scroll derecha"
             >
-              <Plus className="h-5 w-5" />
-              Subir Nueva Canción
-            </Link>
+              ›
+            </button>
           </div>
         </div>
 
