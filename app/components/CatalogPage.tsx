@@ -16,6 +16,8 @@ import {
   ChevronLeft,
   Folder,
   Play,
+  LayoutGrid,
+  LayoutList,
 } from "lucide-react";
 import { type Song } from "../data/songs";
 
@@ -254,6 +256,7 @@ export default function CatalogPage() {
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [artistPage, setArtistPage] = useState(1);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   // Easter egg
   useEffect(() => {
@@ -480,12 +483,43 @@ export default function CatalogPage() {
                       : `Género: ${activeTab}`}
                   </h2>
                 </div>
-                <div className="text-sm font-bold text-rose-400 bg-rose-50 px-4 py-1.5 rounded-full border border-rose-100">
-                  {activeTab === "por-artista"
-                    ? selectedArtist
-                      ? `${artistSongs.length} ${artistSongs.length === 1 ? "melodía" : "melodías"}`
-                      : `${songsByArtist.length} ${songsByArtist.length === 1 ? "artista" : "artistas"}`
-                    : `${filteredSongs.length} Melodías`}
+                <div className="flex items-center gap-3">
+                  <div className="text-sm font-bold text-rose-400 bg-rose-50 px-4 py-1.5 rounded-full border border-rose-100">
+                    {activeTab === "por-artista"
+                      ? selectedArtist
+                        ? `${artistSongs.length} ${artistSongs.length === 1 ? "melodía" : "melodías"}`
+                        : `${songsByArtist.length} ${songsByArtist.length === 1 ? "artista" : "artistas"}`
+                      : `${filteredSongs.length} Melodías`}
+                  </div>
+                  {/* View mode toggle — hidden on the artist folder grid */}
+                  {!(activeTab === "por-artista" && !selectedArtist) && (
+                    <div className="flex rounded-full border-2 border-white/40 bg-white/60 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setViewMode("grid")}
+                        className={`flex items-center justify-center p-2 transition-all ${
+                          viewMode === "grid"
+                            ? "bg-zinc-900 text-white"
+                            : "text-rose-400 hover:bg-rose-50"
+                        }`}
+                        title="Vista tarjeta"
+                      >
+                        <LayoutGrid className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode("list")}
+                        className={`flex items-center justify-center p-2 transition-all ${
+                          viewMode === "list"
+                            ? "bg-zinc-900 text-white"
+                            : "text-rose-400 hover:bg-rose-50"
+                        }`}
+                        title="Vista lista"
+                      >
+                        <LayoutList className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -527,11 +561,19 @@ export default function CatalogPage() {
                     <EmptyState />
                   ) : (
                     <>
-                      <div className="flex flex-col gap-2">
-                        {pagedArtistSongs.map((song) => (
-                          <SongRow key={song.id} song={song} {...cardProps} />
-                        ))}
-                      </div>
+                      {viewMode === "grid" ? (
+                        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                          {pagedArtistSongs.map((song) => (
+                            <SongCard key={song.id} song={song} {...cardProps} />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {pagedArtistSongs.map((song) => (
+                            <SongRow key={song.id} song={song} {...cardProps} />
+                          ))}
+                        </div>
+                      )}
                       <Pagination
                         total={artistTotalPages}
                         page={artistPage}
@@ -549,11 +591,19 @@ export default function CatalogPage() {
                     <EmptyState />
                   ) : (
                     <>
-                      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                        {pagedSongs.map((song) => (
-                          <SongCard key={song.id} song={song} {...cardProps} />
-                        ))}
-                      </div>
+                      {viewMode === "grid" ? (
+                        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                          {pagedSongs.map((song) => (
+                            <SongCard key={song.id} song={song} {...cardProps} />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {pagedSongs.map((song) => (
+                            <SongRow key={song.id} song={song} {...cardProps} />
+                          ))}
+                        </div>
+                      )}
                       <Pagination
                         total={totalPages}
                         page={currentPage}
