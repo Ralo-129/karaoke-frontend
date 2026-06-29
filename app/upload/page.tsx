@@ -176,7 +176,7 @@ export default function UploadPage() {
   useEffect(() => {
     if (!pollingJobId) return;
 
-    const interval = setInterval(async () => {
+    const checkStatus = async () => {
       try {
         const response = await fetch(`/api/jobs/${pollingJobId}`, { cache: "no-store" });
         if (!response.ok) return;
@@ -222,7 +222,10 @@ export default function UploadPage() {
       } catch (err) {
         console.error("Polling error:", err);
       }
-    }, 5000);
+    };
+
+    checkStatus(); // Check inmediato, sin esperar los 5s
+    const interval = setInterval(checkStatus, 5000);
 
     return () => clearInterval(interval);
   }, [pollingJobId]);
