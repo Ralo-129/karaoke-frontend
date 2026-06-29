@@ -64,9 +64,9 @@ export default function MemoriesGallery() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/memories/${encodeURIComponent(selectedImage)}`}
-              alt={`Vista ampliada: foto ${IMAGES.indexOf(selectedImage) + 1} de ${IMAGES.length}`}
+            <img 
+              src={`/memories/${encodeURIComponent(selectedImage)}`} 
+              alt="Recuerdo ampliado" 
               className="max-w-[95vw] max-h-[85vh] w-auto h-auto object-contain rounded-lg shadow-2xl"
             />
           </div>
@@ -122,9 +122,9 @@ export default function MemoriesGallery() {
                 i % 3 === 0 ? '-rotate-2' : i % 2 === 0 ? 'rotate-3' : '-rotate-1'
               }`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/memories/${encodeURIComponent(img)}`}
-                  alt={`Foto de recuerdos ${i + 1} de ${IMAGES.length}`}
+                <img 
+                  src={`/memories/${encodeURIComponent(img)}`} 
+                  alt="Recuerdo hermoso" 
                   loading="lazy"
                   className="w-full h-auto rounded-sm"
                 />
