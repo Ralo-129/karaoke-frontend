@@ -24,6 +24,7 @@ export const viewport = {
 
 import FloatingParticles from "./components/FloatingParticles";
 import Script from "next/script";
+import { QueueProvider } from "./context/QueueContext";
 
 export default function RootLayout({
   children,
@@ -50,9 +51,11 @@ export default function RootLayout({
           </div>
         </div>
 
-        <div className="relative z-10 flex min-h-full flex-col">
-          {children}
-        </div>
+        <QueueProvider>
+          <div className="relative z-10 flex min-h-full flex-col">
+            {children}
+          </div>
+        </QueueProvider>
 
         <Script
           id="pwa-sw-registration"

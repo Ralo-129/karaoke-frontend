@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Play, Pause, Rewind, FastForward, HeartPulse, Sparkles, Music2 } from "lucide-react";
+import { Play, Pause, Rewind, FastForward, HeartPulse, Sparkles, Music2, Maximize2, Minimize2 } from "lucide-react";
 import {
   SYNC_THRESHOLD_S,
   SEEK_OFFSET_S,
@@ -17,6 +17,8 @@ import {
   COUNTDOWN_SHOW_GAP_S,
   COUNTDOWN_SHOW_REMAINING_S,
   LYRICS_WINDOW,
+  LRC_OFFSET_STEP_S,
+  PLAYBACK_RATES,
 } from "../../lib/constants";
 import { useSongData } from "../../hooks/useSongData";
 import { useParsedLyrics } from "../../hooks/useParsedLyrics";
@@ -24,10 +26,13 @@ import { useMediaSync } from "../../hooks/useMediaSync";
 import { useVideoSeek } from "../../hooks/useVideoSeek";
 import { useLyricsScroll } from "../../hooks/useLyricsScroll";
 import { useHeartPosition } from "../../hooks/useHeartPosition";
+import { useQueue } from "../../context/QueueContext";
 
 export default function SongPage() {
   const params = useParams<{ id?: string | string[] }>();
   const songId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const router = useRouter();
+  const { queue, shiftQueue } = useQueue();
 
   const {
     song,
@@ -46,12 +51,16 @@ export default function SongPage() {
   const [duration, setDuration] = useState(0);
   const [instrumentalReady, setInstrumentalReady] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
+  const [lrcOffset, setLrcOffset] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState<typeof PLAYBACK_RATES[number]>(1);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const sourceVideoUrl = song?.videoUrl ?? videoUrl;
 
-  const { lyrics, activeLyricIndex } = useParsedLyrics(song?.lrc, currentTime);
+  const adjustedTime = currentTime + lrcOffset;
+  const { lyrics, activeLyricIndex } = useParsedLyrics(song?.lrc, adjustedTime);
 
   const visibleLyrics = useMemo(() => {
     const start = Math.max(0, activeLyricIndex - LYRICS_WINDOW);
@@ -77,7 +86,27 @@ export default function SongPage() {
   }, [videoUrl]);
 
   const { containerOffset, setLyricRef } = useLyricsScroll(activeLyricIndex);
-  const { heartPos } = useHeartPosition(currentTime, activeLyricIndex, lyrics);
+  const { heartPos } = useHeartPosition(adjustedTime, activeLyricIndex, lyrics);
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = playbackRate;
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
+  }, [playbackRate]);
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
+  const toggleFullscreen = () => {
+    const target = document.getElementById("fullscreen-target") ?? document.documentElement;
+    if (!document.fullscreenElement) {
+      void target.requestFullscreen();
+    } else {
+      void document.exitFullscreen();
+    }
+  };
   const { handleSeek } = useVideoSeek({ videoRef, audioRef, duration, pendingSeekRef, setCurrentTime });
 
   if (isLoadingSong) {
@@ -247,6 +276,18 @@ export default function SongPage() {
 
                 {showEndOptions ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">
+                    {queue.length > 0 && (
+                      <button
+                        className="rounded-full bg-rose-500 px-5 py-2.5 text-xs font-bold uppercase tracking-[0.2em] text-white shadow-lg"
+                        type="button"
+                        onClick={() => {
+                          const next = shiftQueue();
+                          if (next) router.push(`/musica/${next.id}`);
+                        }}
+                      >
+                        Siguiente → {queue[0].title}
+                      </button>
+                    )}
                     <button
                       className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-900"
                       type="button"
@@ -474,6 +515,57 @@ export default function SongPage() {
                     {duration.toFixed(1)}s
                   </div>
                 </div>
+
+                {/* Velocidad de reproducción */}
+                <div className="mt-4 flex items-center justify-center gap-2">
+                  {PLAYBACK_RATES.map((rate) => (
+                    <button
+                      key={rate}
+                      type="button"
+                      onClick={() => setPlaybackRate(rate)}
+                      className={`rounded-full px-3 py-1 text-xs font-bold transition-all ${
+                        playbackRate === rate
+                          ? "bg-zinc-900 text-white"
+                          : "border border-rose-200 bg-white text-rose-400 hover:bg-rose-50"
+                      }`}
+                    >
+                      {rate}x
+                    </button>
+                  ))}
+                </div>
+
+                {/* Offset de letras */}
+                {lyrics.length > 0 && (
+                  <div className="mt-4 flex items-center justify-center gap-3">
+                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Letras</span>
+                    <button
+                      type="button"
+                      onClick={() => setLrcOffset((o) => Math.round((o - LRC_OFFSET_STEP_S) * 10) / 10)}
+                      className="rounded-full border border-rose-200 bg-white px-3 py-1 text-xs font-bold text-rose-400 transition hover:bg-rose-50"
+                    >
+                      −0.5s
+                    </button>
+                    <span className={`min-w-[70px] text-center text-xs font-bold ${lrcOffset === 0 ? "text-zinc-400" : "text-rose-500"}`}>
+                      {lrcOffset === 0 ? "sincronizado" : lrcOffset > 0 ? `+${lrcOffset.toFixed(1)}s` : `${lrcOffset.toFixed(1)}s`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setLrcOffset((o) => Math.round((o + LRC_OFFSET_STEP_S) * 10) / 10)}
+                      className="rounded-full border border-rose-200 bg-white px-3 py-1 text-xs font-bold text-rose-400 transition hover:bg-rose-50"
+                    >
+                      +0.5s
+                    </button>
+                    {lrcOffset !== 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setLrcOffset(0)}
+                        className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-bold text-zinc-400 transition hover:bg-zinc-50"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -487,10 +579,21 @@ export default function SongPage() {
               <p className="text-lg font-medium text-rose-500/80">{song.artist}</p>
             </div>
 
-            <div className="w-full max-w-4xl rounded-[2.5rem] border-2 border-white/60 bg-white/50 p-8 shadow-inner backdrop-blur-sm">
+            <div
+              id="fullscreen-target"
+              className={`w-full max-w-4xl rounded-[2.5rem] border-2 border-white/60 bg-white/50 p-8 shadow-inner backdrop-blur-sm relative ${isFullscreen ? "fixed inset-0 max-w-none rounded-none bg-zinc-950 flex flex-col justify-center z-50" : ""}`}
+            >
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                aria-label={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+                className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-white/60 text-rose-400 transition hover:bg-rose-50 hover:text-rose-500 z-10"
+              >
+                {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
               <div
                 id="lyrics-container"
-                className="relative h-[50vh] overflow-hidden p-4"
+                className={`relative overflow-hidden p-4 ${isFullscreen ? "h-screen" : "h-[50vh]"}`}
                 style={{
                   maskImage: "linear-gradient(to bottom, transparent, black 25%, black 75%, transparent)",
                   WebkitMaskImage: "linear-gradient(to bottom, transparent, black 25%, black 75%, transparent)",
