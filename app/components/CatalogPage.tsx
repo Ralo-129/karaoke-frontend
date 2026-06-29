@@ -20,11 +20,8 @@ import {
   LayoutList,
 } from "lucide-react";
 import { type Song } from "../data/songs";
-import { CATALOG_PAGE_SIZE, POLL_INTERVAL_MS } from "../lib/constants";
-import { mapSongRow } from "../lib/catalog";
-import { supabaseBrowser } from "../lib/supabase-browser";
 
-const PAGE_SIZE = CATALOG_PAGE_SIZE;
+const PAGE_SIZE = 10;
 
 // ─── Pagination ────────────────────────────────────────────────────────────────
 
@@ -249,9 +246,7 @@ function SongRow({
 export default function CatalogPage() {
   const router = useRouter();
   const [songs, setSongs] = useState<Song[]>([]);
-  const [totalSongs, setTotalSongs] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeTab, setActiveTab] = useState<
     "todo" | "por-artista" | "pop" | "rock" | "anime" | "baladas"
   >("todo");
@@ -268,39 +263,20 @@ export default function CatalogPage() {
     if (searchQuery.trim() === "12/05/2025") router.push("/secret");
   }, [searchQuery, router]);
 
-  // Debounce search: 300ms delay before hitting the server
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
   const fetchSongs = useCallback(async () => {
-    setIsLoading(true);
     try {
-      const params = new URLSearchParams();
-      // "por-artista" needs all songs for grouping — skip pagination
-      if (activeTab === "por-artista") {
-        params.set("limit", "500");
-      } else {
-        params.set("page", String(currentPage));
-        params.set("limit", String(PAGE_SIZE));
-        if (activeTab !== "todo") params.set("tag", activeTab);
-      }
-      if (debouncedSearch) params.set("search", debouncedSearch);
-
-      const response = await fetch(`/api/catalog?${params}`);
+      const response = await fetch("/api/catalog");
       if (response.ok) {
-        const payload = (await response.json()) as { songs: Song[]; total: number };
-        setSongs(payload.songs);
-        setTotalSongs(payload.total);
-        setRemoteSongIds(new Set(payload.songs.map((s) => s.id)));
+        const remoteSongs = (await response.json()) as Song[];
+        setSongs(remoteSongs);
+        setRemoteSongIds(new Set(remoteSongs.map((s) => s.id)));
       }
     } catch (error) {
       console.error("Error fetching songs:", error);
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, debouncedSearch, activeTab]);
+  }, []);
 
   useEffect(() => {
     fetchSongs();
@@ -311,37 +287,10 @@ export default function CatalogPage() {
     [songs]
   );
 
-  // Realtime: update songs state when DB changes without polling
   useEffect(() => {
-    if (!supabaseBrowser) {
-      // Fallback: poll when Supabase Realtime is not available
-      if (!hasProcessing) return;
-      const interval = setInterval(fetchSongs, POLL_INTERVAL_MS);
-      return () => clearInterval(interval);
-    }
-
-    const channel = supabaseBrowser
-      .channel("catalog-changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "songs" },
-        (payload) => {
-          if (payload.eventType === "UPDATE") {
-            const updated = mapSongRow(payload.new as Record<string, unknown>);
-            setSongs((prev) =>
-              prev.map((s) => (s.id === updated.id ? { ...s, ...updated } as Song : s))
-            );
-          } else if (payload.eventType === "INSERT") {
-            fetchSongs();
-          } else if (payload.eventType === "DELETE") {
-            const deletedId = (payload.old as Record<string, unknown>).job_id as string;
-            setSongs((prev) => prev.filter((s) => s.id !== deletedId));
-          }
-        }
-      )
-      .subscribe();
-
-    return () => { void supabaseBrowser?.removeChannel(channel); };
+    if (!hasProcessing) return;
+    const interval = setInterval(fetchSongs, 5000);
+    return () => clearInterval(interval);
   }, [hasProcessing, fetchSongs]);
 
   // Reset pages and selectedArtist when tab or search changes
@@ -354,9 +303,26 @@ export default function CatalogPage() {
   useEffect(() => {
     setCurrentPage(1);
     setArtistPage(1);
-  }, [debouncedSearch]);
+  }, [searchQuery]);
 
-  // ── Artist grouping (folder view — songs already loaded without pagination) ──
+  // ── Filtered songs (for genre / todo tabs) ──
+  const filteredSongs = useMemo(() => {
+    return songs.filter((song) => {
+      const matchesSearch =
+        song.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        song.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        song.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+
+      const matchesTab =
+        activeTab === "todo" ||
+        activeTab === "por-artista" ||
+        song.tags.some((tag) => tag.toLowerCase() === activeTab);
+
+      return matchesSearch && matchesTab;
+    });
+  }, [songs, searchQuery, activeTab]);
+
+  // ── Artist grouping (always computed for the folder view) ──
   const songsByArtist = useMemo(() => {
     const groups: Record<string, Song[]> = {};
     for (const song of songs) {
@@ -367,23 +333,24 @@ export default function CatalogPage() {
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
   }, [songs]);
 
-  // ── Songs for the selected artist (with client-side search within artist) ──
+  // ── Songs for the selected artist (with search filter) ──
   const artistSongs = useMemo(() => {
     if (!selectedArtist) return [];
     return songs.filter(
       (s) =>
         (s.artist || "Sin artista") === selectedArtist &&
-        (debouncedSearch === "" ||
-          s.title.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-          s.tags.some((t) => t.toLowerCase().includes(debouncedSearch.toLowerCase())))
+        (searchQuery === "" ||
+          s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          s.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase())))
     );
-  }, [selectedArtist, songs, debouncedSearch]);
+  }, [selectedArtist, songs, searchQuery]);
 
-  // ── Pagination (server-side for main tabs, client-side for artist drill-down) ──
-  const totalPages = activeTab === "por-artista"
-    ? 1
-    : Math.ceil(totalSongs / PAGE_SIZE);
-  const pagedSongs = songs; // Already paginated by the server
+  // ── Pagination for main grid ──
+  const totalPages = Math.ceil(filteredSongs.length / PAGE_SIZE);
+  const pagedSongs = filteredSongs.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
 
   // ── Pagination for artist drill-down ──
   const artistTotalPages = Math.ceil(artistSongs.length / PAGE_SIZE);
@@ -548,7 +515,7 @@ export default function CatalogPage() {
                       ? selectedArtist
                         ? `${artistSongs.length} ${artistSongs.length === 1 ? "melodía" : "melodías"}`
                         : `${songsByArtist.length} ${songsByArtist.length === 1 ? "artista" : "artistas"}`
-                      : `${totalSongs} Melodías`}
+                      : `${filteredSongs.length} Melodías`}
                   </div>
                   {/* View mode toggle — hidden on the artist folder grid */}
                   {!(activeTab === "por-artista" && !selectedArtist) && (
@@ -646,7 +613,7 @@ export default function CatalogPage() {
               {/* ── Genre / Todo grid with pagination ── */}
               {activeTab !== "por-artista" && (
                 <>
-                  {songs.length === 0 ? (
+                  {filteredSongs.length === 0 ? (
                     <EmptyState />
                   ) : (
                     <>
