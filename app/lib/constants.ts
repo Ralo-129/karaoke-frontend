@@ -14,3 +14,5 @@ export const COUNTDOWN_SHOW_REMAINING_S = 3;
 export const CATALOG_PAGE_SIZE = 9;
 export const LYRICS_WINDOW = 8;
 export const UPLOAD_MAX_RETRIES = 3;
+export const LRC_OFFSET_STEP_S = 0.5;
+export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;

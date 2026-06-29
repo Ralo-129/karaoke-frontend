@@ -18,11 +18,15 @@ import {
   Play,
   LayoutGrid,
   LayoutList,
+  ListPlus,
+  X,
 } from "lucide-react";
 import { type Song } from "../data/songs";
 import { CATALOG_PAGE_SIZE, POLL_INTERVAL_MS } from "../lib/constants";
 import { mapSongRow } from "../lib/catalog";
 import { supabaseBrowser } from "../lib/supabase-browser";
+import { useFavorites } from "../hooks/useFavorites";
+import { useQueue } from "../context/QueueContext";
 
 const PAGE_SIZE = CATALOG_PAGE_SIZE;
 
@@ -99,11 +103,19 @@ function SongCard({
   remoteSongIds,
   deletingSongId,
   onDelete,
+  isFavorite,
+  onToggleFavorite,
+  onAddToQueue,
+  inQueue,
 }: {
   song: Song;
   remoteSongIds: Set<string>;
   deletingSongId: string | null;
   onDelete: (id: string, title: string) => void;
+  isFavorite: boolean;
+  onToggleFavorite: (id: string) => void;
+  onAddToQueue: (song: Song) => void;
+  inQueue: boolean;
 }) {
   const isProcessing = song.status === "processing";
   return (
@@ -170,7 +182,24 @@ function SongCard({
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <Heart className="h-4 w-4 text-rose-300" />
+          <button
+            type="button"
+            aria-label={isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
+            onClick={(e) => { e.preventDefault(); onToggleFavorite(song.id); }}
+            className="transition-transform hover:scale-110"
+          >
+            <Heart className={`h-4 w-4 transition-colors ${isFavorite ? "fill-rose-500 text-rose-500" : "text-rose-200 hover:text-rose-400"}`} />
+          </button>
+          <button
+            type="button"
+            aria-label={inQueue ? "Ya está en la cola" : "Agregar a la cola"}
+            onClick={(e) => { e.preventDefault(); onAddToQueue(song); }}
+            disabled={inQueue || song.status === "processing"}
+            className="transition-transform hover:scale-110 disabled:opacity-40"
+            title={inQueue ? "Ya está en la cola" : "Agregar a la cola"}
+          >
+            <ListPlus className={`h-4 w-4 transition-colors ${inQueue ? "text-rose-400" : "text-zinc-300 hover:text-rose-400"}`} />
+          </button>
           {remoteSongIds.has(song.id) && !isProcessing ? (
             <button
               className="rounded-full border border-rose-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-70"
@@ -197,11 +226,19 @@ function SongRow({
   remoteSongIds,
   deletingSongId,
   onDelete,
+  isFavorite,
+  onToggleFavorite,
+  onAddToQueue,
+  inQueue,
 }: {
   song: Song;
   remoteSongIds: Set<string>;
   deletingSongId: string | null;
   onDelete: (id: string, title: string) => void;
+  isFavorite: boolean;
+  onToggleFavorite: (id: string) => void;
+  onAddToQueue: (song: Song) => void;
+  inQueue: boolean;
 }) {
   const isProcessing = song.status === "processing";
   return (
@@ -224,6 +261,24 @@ function SongRow({
       <span className="shrink-0 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-500">
         {isProcessing ? "..." : song.duration}
       </span>
+      <button
+        type="button"
+        aria-label={isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
+        onClick={() => onToggleFavorite(song.id)}
+        className="shrink-0 transition-transform hover:scale-110"
+      >
+        <Heart className={`h-4 w-4 transition-colors ${isFavorite ? "fill-rose-500 text-rose-500" : "text-rose-200 hover:text-rose-400"}`} />
+      </button>
+      <button
+        type="button"
+        aria-label={inQueue ? "Ya está en la cola" : "Agregar a la cola"}
+        onClick={() => onAddToQueue(song)}
+        disabled={inQueue || isProcessing}
+        className="shrink-0 transition-transform hover:scale-110 disabled:opacity-40"
+        title={inQueue ? "Ya está en la cola" : "Agregar a la cola"}
+      >
+        <ListPlus className={`h-4 w-4 transition-colors ${inQueue ? "text-rose-400" : "text-zinc-300 hover:text-rose-400"}`} />
+      </button>
       <Link
         href={`/musica/${song.id}`}
         className="shrink-0 flex h-8 w-8 items-center justify-center rounded-full bg-rose-500 text-white shadow hover:bg-rose-600 transition"
@@ -253,8 +308,11 @@ export default function CatalogPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeTab, setActiveTab] = useState<
-    "todo" | "por-artista" | "pop" | "rock" | "anime" | "baladas"
+    "todo" | "por-artista" | "favoritos" | "pop" | "rock" | "anime" | "baladas"
   >("todo");
+  const { favorites, toggle: toggleFavorite } = useFavorites();
+  const { queue, addToQueue, removeFromQueue } = useQueue();
+  const [showQueue, setShowQueue] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [remoteSongIds, setRemoteSongIds] = useState<Set<string>>(new Set());
   const [deletingSongId, setDeletingSongId] = useState<string | null>(null);
@@ -278,8 +336,8 @@ export default function CatalogPage() {
     setIsLoading(true);
     try {
       const params = new URLSearchParams();
-      // "por-artista" needs all songs for grouping — skip pagination
-      if (activeTab === "por-artista") {
+      // "por-artista" and "favoritos" need all songs — skip pagination
+      if (activeTab === "por-artista" || activeTab === "favoritos") {
         params.set("limit", "500");
       } else {
         params.set("page", String(currentPage));
@@ -416,7 +474,13 @@ export default function CatalogPage() {
   };
 
   // ── Shared card props ──
-  const cardProps = { remoteSongIds, deletingSongId, onDelete: handleDeleteSong };
+  const cardProps = {
+    remoteSongIds,
+    deletingSongId,
+    onDelete: handleDeleteSong,
+    onToggleFavorite: toggleFavorite,
+    onAddToQueue: addToQueue,
+  };
 
   const tabsRef = useRef<HTMLDivElement>(null);
   const scrollTabs = (dir: "left" | "right") => {
@@ -456,7 +520,44 @@ export default function CatalogPage() {
             />
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {/* Cola de canciones */}
+            {queue.length > 0 && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowQueue((v) => !v)}
+                  className="flex items-center gap-2 rounded-full border-2 border-rose-200 bg-white px-4 py-2 text-sm font-bold text-rose-500 transition-all hover:bg-rose-50"
+                >
+                  <ListPlus className="h-4 w-4" />
+                  Cola ({queue.length})
+                </button>
+                {showQueue && (
+                  <div className="absolute right-0 z-50 mt-2 w-72 rounded-2xl border border-rose-100 bg-white shadow-xl">
+                    <div className="flex items-center justify-between border-b border-rose-50 px-4 py-3">
+                      <span className="text-sm font-bold text-zinc-700">Cola de canciones</span>
+                      <button type="button" onClick={() => setShowQueue(false)} className="text-zinc-400 hover:text-zinc-600">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <ul className="max-h-60 overflow-y-auto">
+                      {queue.map((s, i) => (
+                        <li key={s.id} className="flex items-center gap-3 px-4 py-2 hover:bg-rose-50">
+                          <span className="text-xs text-zinc-400">{i + 1}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-zinc-700">{s.title}</p>
+                            <p className="truncate text-xs text-zinc-400">{s.artist}</p>
+                          </div>
+                          <button type="button" onClick={() => removeFromQueue(s.id)} className="shrink-0 text-zinc-300 hover:text-rose-400">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
             <Link
               href="/upload"
               className="flex items-center gap-2 rounded-full bg-rose-500 px-8 py-3 text-sm font-bold uppercase tracking-widest text-white shadow-[0_10px_20px_rgb(251,113,133,0.3)] transition-all hover:bg-rose-600 hover:scale-105 active:scale-95"
@@ -479,7 +580,7 @@ export default function CatalogPage() {
               ref={tabsRef}
               className="flex gap-3 overflow-x-auto [&::-webkit-scrollbar]:hidden"
             >
-              {(["todo", "por-artista", "pop", "rock", "anime", "baladas"] as const).map((tab) => (
+              {(["todo", "por-artista", "favoritos", "pop", "rock", "anime", "baladas"] as const).map((tab) => (
                 <button
                   key={tab}
                   className={`shrink-0 rounded-full px-8 py-3 text-sm font-bold uppercase tracking-widest transition-all ${
@@ -490,7 +591,7 @@ export default function CatalogPage() {
                   onClick={() => setActiveTab(tab)}
                   type="button"
                 >
-                  {tab === "por-artista" ? "Por Artista" : tab}
+                  {tab === "por-artista" ? "Por Artista" : tab === "favoritos" ? "❤️ Favoritos" : tab}
                 </button>
               ))}
             </div>
@@ -539,6 +640,8 @@ export default function CatalogPage() {
                       ? "Todas las Canciones"
                       : activeTab === "por-artista"
                       ? selectedArtist ?? "Por Artista"
+                      : activeTab === "favoritos"
+                      ? "Mis Favoritas"
                       : `Género: ${activeTab}`}
                   </h2>
                 </div>
@@ -623,13 +726,13 @@ export default function CatalogPage() {
                       {viewMode === "grid" ? (
                         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                           {pagedArtistSongs.map((song) => (
-                            <SongCard key={song.id} song={song} {...cardProps} />
+                            <SongCard key={song.id} song={song} isFavorite={favorites.has(song.id)} inQueue={queue.some((q) => q.id === song.id)} {...cardProps} />
                           ))}
                         </div>
                       ) : (
                         <div className="flex flex-col gap-2">
                           {pagedArtistSongs.map((song) => (
-                            <SongRow key={song.id} song={song} {...cardProps} />
+                            <SongRow key={song.id} song={song} isFavorite={favorites.has(song.id)} inQueue={queue.some((q) => q.id === song.id)} {...cardProps} />
                           ))}
                         </div>
                       )}
@@ -643,8 +746,29 @@ export default function CatalogPage() {
                 </>
               )}
 
+              {/* ── Favoritos ── */}
+              {activeTab === "favoritos" && (
+                <>
+                  {songs.filter((s) => favorites.has(s.id)).length === 0 ? (
+                    <div className="flex flex-col items-center gap-4 py-16 text-center text-zinc-400">
+                      <Heart className="h-12 w-12 text-rose-200" />
+                      <p className="font-bold">No tenés favoritos todavía</p>
+                      <p className="text-sm">Presioná el ❤️ en cualquier canción para guardarla acá.</p>
+                    </div>
+                  ) : (
+                    <div className={viewMode === "grid" ? "grid gap-6 sm:grid-cols-2 lg:grid-cols-3" : "flex flex-col gap-2"}>
+                      {songs.filter((s) => favorites.has(s.id)).map((song) =>
+                        viewMode === "grid"
+                          ? <SongCard key={song.id} song={song} isFavorite={true} inQueue={queue.some((q) => q.id === song.id)} {...cardProps} />
+                          : <SongRow key={song.id} song={song} isFavorite={true} inQueue={queue.some((q) => q.id === song.id)} {...cardProps} />
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
               {/* ── Genre / Todo grid with pagination ── */}
-              {activeTab !== "por-artista" && (
+              {activeTab !== "por-artista" && activeTab !== "favoritos" && (
                 <>
                   {songs.length === 0 ? (
                     <EmptyState />
@@ -653,13 +777,13 @@ export default function CatalogPage() {
                       {viewMode === "grid" ? (
                         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                           {pagedSongs.map((song) => (
-                            <SongCard key={song.id} song={song} {...cardProps} />
+                            <SongCard key={song.id} song={song} isFavorite={favorites.has(song.id)} inQueue={queue.some((q) => q.id === song.id)} {...cardProps} />
                           ))}
                         </div>
                       ) : (
                         <div className="flex flex-col gap-2">
                           {pagedSongs.map((song) => (
-                            <SongRow key={song.id} song={song} {...cardProps} />
+                            <SongRow key={song.id} song={song} isFavorite={favorites.has(song.id)} inQueue={queue.some((q) => q.id === song.id)} {...cardProps} />
                           ))}
                         </div>
                       )}

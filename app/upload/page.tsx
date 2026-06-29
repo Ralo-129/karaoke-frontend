@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { CloudUpload, Heart, Sparkles, Music } from "lucide-react";
 import { CHUNK_SIZE_BYTES, POLL_INTERVAL_MS, UPLOAD_MAX_RETRIES } from "../lib/constants";
 
@@ -155,6 +155,7 @@ export default function UploadPage() {
   const [uploadState, setUploadState] = useState<UploadState>({
     status: "idle",
   });
+  const uploadedTitleRef = useRef<string>("");
 
   const [pollingJobId, setPollingJobId] = useState<string | null>(null);
   const [allArtists, setAllArtists] = useState<string[]>([]);
@@ -214,6 +215,12 @@ export default function UploadPage() {
 
         if (data.status === "completed") {
           setPollingJobId(null);
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("¡Tu canción está lista! 💕", {
+              body: uploadedTitleRef.current ? `"${uploadedTitleRef.current}" ya se puede cantar.` : "El procesamiento terminó.",
+              icon: "/icon.png",
+            });
+          }
           setUploadState({
             status: "success",
             message: "✅ La canción se subió y procesó correctamente!",
@@ -264,6 +271,11 @@ export default function UploadPage() {
       });
       return;
     }
+
+    if ("Notification" in window && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+    uploadedTitleRef.current = title;
 
     try {
       setUploadState({ status: "uploading", progress: 0, statusMessage: "Preparando subida..." });
