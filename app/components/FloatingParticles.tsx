@@ -12,6 +12,7 @@ export default function FloatingParticles() {
   >([]);
 
   useEffect(() => {
+    let mounted = true;
     // We only generate these on the client so hydration matches the empty initial state
     const generated = Array.from({ length: PARTICLE_COUNT }).map((_, i) => {
       const size = Math.random() * 8 + 4; // 4px to 12px
@@ -23,7 +24,8 @@ export default function FloatingParticles() {
         opacity: `${Math.random() * 0.3 + 0.1}`, // 0.1 to 0.4 opacity
       };
     });
-    setParticles(generated);
+    if (mounted) setParticles(generated);
+    return () => { mounted = false; };
   }, []);
 
   if (particles.length === 0) return null;

@@ -56,49 +56,30 @@ const parseLrc = (raw: string): LrcLine[] => {
     const lineEndTime = next ? next.time : current.time + 5;
     const duration = lineEndTime - current.time;
 
-    const wordsRaw = current.text.split(/(<\d{2}:\d{2}\.\d{2}>[^<]*)/).filter(w => w.trim().length > 0);
-    const hasWordTimestamps = current.text.includes("<") && current.text.includes(">");
-    const totalChars = current.text.replace(/<\d{2}:\d{2}\.\d{2}>/g, "").length || 1;
-
-    let currentWordTime = current.time;
     const words: LrcWord[] = [];
+    const wordMatches = [...current.text.matchAll(/<(\d{2}):(\d{2})\.(\d{2})>([^<]*)/g)];
 
-    if (hasWordTimestamps) {
-      for (const part of wordsRaw) {
-        const match = part.match(/<(\d{2}):(\d{2})\.(\d{2})>(.*)/);
-        if (match) {
-          const m = Number(match[1]);
-          const s = Number(match[2]);
-          const c = Number(match[3]);
-          const wTime = m * 60 + s + c / 100;
-          const wText = match[4].trim();
-
-          if (words.length > 0) {
-            words[words.length - 1].endTime = wTime;
-          }
-
-          words.push({
-            text: wText,
-            startTime: wTime,
-            endTime: lineEndTime // Temporalmente el final de la línea
-          });
+    if (wordMatches.length > 0) {
+      for (const m of wordMatches) {
+        const wTime = Number(m[1]) * 60 + Number(m[2]) + Number(m[3]) / 100;
+        const wText = m[4].trim();
+        if (!wText) continue;
+        if (words.length > 0) {
+          words[words.length - 1].endTime = wTime;
         }
+        words.push({ text: wText, startTime: wTime, endTime: lineEndTime });
       }
     } else {
-      // Fallback: Interpolación por longitud
-      const wordsSimple = current.text.split(/(\s+)/).filter(w => w.length > 0);
-      for (const w of wordsSimple) {
-        const wordDuration = (w.length / totalChars) * duration;
-        const wordEndTime = currentWordTime + wordDuration;
-
+      // Fallback: distribución uniforme por palabra (no por carácter)
+      const realWords = current.text.split(/\s+/).filter(w => w.length > 0);
+      const perWord = duration / (realWords.length || 1);
+      realWords.forEach((w, i) => {
         words.push({
           text: w,
-          startTime: currentWordTime,
-          endTime: wordEndTime
+          startTime: current.time + i * perWord,
+          endTime: current.time + (i + 1) * perWord,
         });
-
-        currentWordTime = wordEndTime;
-      }
+      });
     }
 
     entries.push({
@@ -194,6 +175,7 @@ export default function SongPage() {
       return;
     }
 
+    pendingSeekRef.current = null;
     const controller = new AbortController();
 
     const loadSong = async () => {
@@ -202,7 +184,18 @@ export default function SongPage() {
           signal: controller.signal,
         });
 
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (!controller.signal.aborted) {
+            setLoadError(
+              response.status === 404
+                ? "No se encontró la canción. Es posible que haya sido eliminada."
+                : "No se pudo cargar la canción. Intenta de nuevo más tarde."
+            );
+            setIsLoadingSong(false);
+            setSong(null);
+          }
+          return;
+        }
 
         const payload = (await response.json()) as Song;
         if (!controller.signal.aborted) {
@@ -301,10 +294,6 @@ export default function SongPage() {
       if (isPlaying) {
         void audioEl.play();
         if (videoEl) {
-          // Si el video est fuera de sincronía al arrancar (más de 0.5s), lo ajustamos
-          if (videoEl.readyState >= 2 && Math.abs(videoEl.currentTime - audioEl.currentTime) > 0.5) {
-            videoEl.currentTime = audioEl.currentTime;
-          }
           void videoEl.play().catch(() => { });
         }
       } else {
@@ -687,45 +676,49 @@ export default function SongPage() {
                 )}
               </div>
 
-              {song?.instrumentalUrl ? (
-                <audio
-                  ref={audioRef}
-                  src={song.instrumentalUrl}
-                  preload="auto"
-                  style={{ display: "none" }}
-                  onCanPlay={() => {
-                    setInstrumentalReady(true);
-                  }}
-                  onLoadedMetadata={(event) => {
-                    const value = event.currentTarget.duration || 0;
-                    setDuration(value);
-                    if (pendingSeekRef.current !== null) {
-                      event.currentTarget.currentTime = pendingSeekRef.current;
-                      setCurrentTime(pendingSeekRef.current);
-                      pendingSeekRef.current = null;
+              <audio
+                ref={audioRef}
+                src={song?.instrumentalUrl ?? undefined}
+                preload={song?.instrumentalUrl ? "auto" : "none"}
+                style={{ display: "none" }}
+                onCanPlay={() => {
+                  if (song?.instrumentalUrl) setInstrumentalReady(true);
+                }}
+                onLoadedMetadata={(event) => {
+                  if (!song?.instrumentalUrl) return;
+                  const value = event.currentTarget.duration || 0;
+                  setDuration(value);
+                  if (pendingSeekRef.current !== null) {
+                    event.currentTarget.currentTime = pendingSeekRef.current;
+                    setCurrentTime(pendingSeekRef.current);
+                    pendingSeekRef.current = null;
+                  }
+                }}
+                onTimeUpdate={(event) => {
+                  if (!song?.instrumentalUrl) return;
+                  const t = event.currentTarget.currentTime;
+                  setCurrentTime(t);
+                  if (
+                    videoRef.current &&
+                    !videoRef.current.seeking &&
+                    Math.abs(videoRef.current.currentTime - t) > 0.5
+                  ) {
+                    try {
+                      videoRef.current.currentTime = t;
+                    } catch (e) {
+                      // ignore
                     }
-                  }}
-                  onTimeUpdate={(event) => {
-                    const t = event.currentTarget.currentTime;
-                    setCurrentTime(t);
-                    // Increase threshold to 1 second to avoid micro-stutters
-                    if (videoRef.current && Math.abs(videoRef.current.currentTime - t) > 1.0) {
-                      try {
-                        videoRef.current.currentTime = t;
-                      } catch (e) {
-                        // ignore
-                      }
-                    }
-                  }}
-                  onEnded={() => {
-                    setIsPlaying(false);
-                    setShowEndOptions(true);
-                  }}
-                  onError={() => {
-                    setInstrumentalReady(false);
-                  }}
-                />
-              ) : null}
+                  }
+                }}
+                onEnded={() => {
+                  if (!song?.instrumentalUrl) return;
+                  setIsPlaying(false);
+                  setShowEndOptions(true);
+                }}
+                onError={() => {
+                  setInstrumentalReady(false);
+                }}
+              />
 
               <div className="rounded-[2rem] border-2 border-white/50 bg-white/60 p-6 shadow-sm backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-center gap-6">
