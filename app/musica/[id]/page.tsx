@@ -4,120 +4,40 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { type Song } from "../../data/songs";
 import { Play, Pause, Rewind, FastForward, HeartPulse, Sparkles, Music2 } from "lucide-react";
-
-type LrcWord = {
-  text: string;
-  startTime: number;
-  endTime: number;
-};
-
-type LrcLine = {
-  time: number;
-  endTime: number;
-  text: string;
-  words: LrcWord[];
-};
-
-const parseLrc = (raw: string): LrcLine[] => {
-  const lines = raw
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const rawEntries: { time: number; text: string }[] = [];
-
-  for (const line of lines) {
-    const match = line.match(/\[(\d{2}):(\d{2})(?:\.(\d{1,2}))?\]\s*(.*)/);
-    if (!match) {
-      rawEntries.push({ time: rawEntries.length, text: line });
-      continue;
-    }
-
-    const minutes = Number(match[1]);
-    const seconds = Number(match[2]);
-    const centiseconds = Number(match[3] ?? "0");
-    const text = match[4]?.trim() ?? "";
-
-    const time = minutes * 60 + seconds + centiseconds / 100;
-    rawEntries.push({ time, text });
-  }
-
-  rawEntries.sort((a, b) => a.time - b.time);
-
-  const entries: LrcLine[] = [];
-
-  for (let i = 0; i < rawEntries.length; i++) {
-    const current = rawEntries[i];
-    const next = rawEntries[i + 1];
-
-    // Si no hay siguiente línea, le damos 5 segundos de duración por defecto
-    const lineEndTime = next ? next.time : current.time + 5;
-    const duration = lineEndTime - current.time;
-
-    const wordsRaw = current.text.split(/(<\d{2}:\d{2}\.\d{2}>[^<]*)/).filter(w => w.trim().length > 0);
-    const hasWordTimestamps = current.text.includes("<") && current.text.includes(">");
-    const totalChars = current.text.replace(/<\d{2}:\d{2}\.\d{2}>/g, "").length || 1;
-
-    let currentWordTime = current.time;
-    const words: LrcWord[] = [];
-
-    if (hasWordTimestamps) {
-      for (const part of wordsRaw) {
-        const match = part.match(/<(\d{2}):(\d{2})\.(\d{2})>(.*)/);
-        if (match) {
-          const m = Number(match[1]);
-          const s = Number(match[2]);
-          const c = Number(match[3]);
-          const wTime = m * 60 + s + c / 100;
-          const wText = match[4].trim();
-
-          if (words.length > 0) {
-            words[words.length - 1].endTime = wTime;
-          }
-
-          words.push({
-            text: wText,
-            startTime: wTime,
-            endTime: lineEndTime // Temporalmente el final de la línea
-          });
-        }
-      }
-    } else {
-      // Fallback: Interpolación por longitud
-      const wordsSimple = current.text.split(/(\s+)/).filter(w => w.length > 0);
-      for (const w of wordsSimple) {
-        const wordDuration = (w.length / totalChars) * duration;
-        const wordEndTime = currentWordTime + wordDuration;
-
-        words.push({
-          text: w,
-          startTime: currentWordTime,
-          endTime: wordEndTime
-        });
-
-        currentWordTime = wordEndTime;
-      }
-    }
-
-    entries.push({
-      time: current.time,
-      endTime: lineEndTime,
-      text: current.text.replace(/<\d{2}:\d{2}\.\d{2}>/g, ""),
-      words: words
-    });
-  }
-
-  return entries;
-};
+import {
+  SYNC_THRESHOLD_S,
+  SEEK_OFFSET_S,
+  LYRICS_FADE_MIN_OPACITY,
+  LYRICS_FADE_OPACITY_DECAY,
+  LYRICS_FADE_MIN_SCALE,
+  LYRICS_FADE_SCALE_DECAY,
+  LYRICS_BLUR_MAX_PX,
+  LYRICS_BLUR_DECAY,
+  COUNTDOWN_SHOW_GAP_S,
+  COUNTDOWN_SHOW_REMAINING_S,
+  LYRICS_WINDOW,
+} from "../../lib/constants";
+import { useSongData } from "../../hooks/useSongData";
+import { useParsedLyrics } from "../../hooks/useParsedLyrics";
+import { useMediaSync } from "../../hooks/useMediaSync";
+import { useVideoSeek } from "../../hooks/useVideoSeek";
+import { useLyricsScroll } from "../../hooks/useLyricsScroll";
+import { useHeartPosition } from "../../hooks/useHeartPosition";
 
 export default function SongPage() {
   const params = useParams<{ id?: string | string[] }>();
   const songId = Array.isArray(params.id) ? params.id[0] : params.id;
-  const [song, setSong] = useState<Song | null>(null);
-  const [isLoadingSong, setIsLoadingSong] = useState(Boolean(songId));
-  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const {
+    song,
+    isLoadingSong,
+    loadError,
+    jobStatus,
+    isSeparatingOnDemand,
+    handleSeparateOnDemand,
+    pendingSeekRef,
+  } = useSongData(songId);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -126,203 +46,29 @@ export default function SongPage() {
   const [duration, setDuration] = useState(0);
   const [instrumentalReady, setInstrumentalReady] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
-  const [heartPos, setHeartPos] = useState({ x: 0, y: 0, opacity: 0 });
-  const [containerOffset, setContainerOffset] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const lyricRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const pendingSeekRef = useRef<number | null>(null);
-
-  const [jobStatus, setJobStatus] = useState<{ status: string; progress: number; message: string } | null>(null);
-  const [isSeparatingOnDemand, setIsSeparatingOnDemand] = useState(false);
-
-  const handleSeparateOnDemand = async () => {
-    if (!songId || isSeparatingOnDemand) return;
-    setIsSeparatingOnDemand(true);
-    try {
-      const response = await fetch(`/api/catalog/${songId}/separate`, { method: "POST" });
-      if (!response.ok) {
-        alert("Ocurrió un error al procesar la instrumental. Inténtalo de nuevo. 💕");
-        setIsSeparatingOnDemand(false);
-        return;
-      }
-      const data = await response.json();
-
-      if (data.status === "ok" && data.instrumental_url) {
-        // Ya tenía instrumental — actualización directa sin polling
-        setSong(prev => prev ? { ...prev, instrumentalUrl: data.instrumental_url } : null);
-        setIsSeparatingOnDemand(false);
-        return;
-      }
-
-      // Backend procesando en background — arrancar polling
-      const pollId = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/jobs/${songId}`, { cache: "no-store" });
-          if (!res.ok) return;
-          const status = await res.json();
-          setJobStatus(status);
-
-          if (status.status === "completed") {
-            clearInterval(pollId);
-            const songRes = await fetch(`/api/catalog/${songId}`, { cache: "no-store" });
-            if (songRes.ok) {
-              const updated = await songRes.json();
-              setSong(updated);
-            }
-            setJobStatus(null);
-            setIsSeparatingOnDemand(false);
-          } else if (status.status === "error" || status.status === "failed") {
-            clearInterval(pollId);
-            setJobStatus(null);
-            setIsSeparatingOnDemand(false);
-            alert("Error al generar la instrumental.");
-          }
-        } catch (e) {
-          console.error("Poll error:", e);
-        }
-      }, 5000);
-    } catch (err) {
-      console.error(err);
-      alert("Error de red al procesar la instrumental.");
-      setIsSeparatingOnDemand(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!songId) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    const loadSong = async () => {
-      try {
-        const response = await fetch(`/api/catalog/${songId}`, {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) return;
-
-        const payload = (await response.json()) as Song;
-        if (!controller.signal.aborted) {
-          setSong(payload);
-          setLoadError(null);
-          setIsLoadingSong(false);
-        }
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-
-        if (!controller.signal.aborted) {
-          setLoadError("No se pudo cargar la cancion.");
-          setIsLoadingSong(false);
-          setSong(null);
-        }
-      }
-    };
-
-    void loadSong();
-
-    // Polling for job status if processing
-    let pollInterval: NodeJS.Timeout | null = null;
-
-    if (song?.status === "processing") {
-      pollInterval = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/jobs/${songId}`, { cache: "no-store" });
-          if (res.ok) {
-            const status = await res.json();
-            setJobStatus(status);
-            if (status.status === "completed") {
-              if (status.song) {
-                setSong((prev) => (prev ? { ...prev, ...status.song } : status.song));
-              }
-              setIsLoadingSong(false);
-              setJobStatus(null);
-              if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-              }
-            } else if (status.status === "error" || status.status === "failed") {
-              setJobStatus(status);
-              setIsLoadingSong(false);
-              if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-              }
-            }
-          }
-        } catch (e) {
-          console.error("Poll error:", e);
-        }
-      }, 5000);
-    }
-
-    return () => {
-      controller.abort();
-      if (pollInterval) clearInterval(pollInterval);
-    };
-  }, [songId, song?.status]);
-
-  const lyrics = useMemo(() => parseLrc(song?.lrc ?? ""), [song?.lrc]);
-  const activeLyricIndex = useMemo(() => {
-    if (!lyrics.length) return -1;
-
-    let currentIndex = 0;
-    for (let index = 0; index < lyrics.length; index += 1) {
-      if (lyrics[index].time <= currentTime) {
-        currentIndex = index;
-      } else {
-        break;
-      }
-    }
-
-    return currentIndex;
-  }, [currentTime, lyrics]);
 
   const sourceVideoUrl = song?.videoUrl ?? videoUrl;
 
-  useEffect(() => {
-    // The video element is purely VISUAL when an instrumental track exists.
-    // Audio playback is handled exclusively by the <audio> element.
-    const videoEl = videoRef.current;
-    const audioEl = audioRef.current;
+  const { lyrics, activeLyricIndex } = useParsedLyrics(song?.lrc, currentTime);
 
-    // Always keep video muted when we have an instrumental — do not wait for
-    // instrumentalReady to avoid the vocals-first flash.
-    if (videoEl && song?.instrumentalUrl) {
-      videoEl.muted = true;
-    }
+  const visibleLyrics = useMemo(() => {
+    const start = Math.max(0, activeLyricIndex - LYRICS_WINDOW);
+    const end = Math.min(lyrics.length - 1, activeLyricIndex + LYRICS_WINDOW);
+    return lyrics.slice(start, end + 1).map((line, i) => ({
+      ...line,
+      originalIndex: start + i,
+    }));
+  }, [lyrics, activeLyricIndex]);
 
-    if (audioEl && song?.instrumentalUrl) {
-      // Audio element drives playback
-      if (isPlaying) {
-        void audioEl.play();
-        if (videoEl) {
-          // Si el video est fuera de sincronía al arrancar (más de 0.5s), lo ajustamos
-          if (videoEl.readyState >= 2 && Math.abs(videoEl.currentTime - audioEl.currentTime) > 0.5) {
-            videoEl.currentTime = audioEl.currentTime;
-          }
-          void videoEl.play().catch(() => { });
-        }
-      } else {
-        audioEl.pause();
-        if (videoEl) videoEl.pause();
-      }
-      return;
-    }
-
-    // No instrumental — video handles its own audio normally
-    if (!videoEl || !sourceVideoUrl) return;
-    videoEl.muted = false;
-    if (isPlaying) {
-      void videoEl.play();
-    } else {
-      videoEl.pause();
-    }
-  }, [isPlaying, sourceVideoUrl, song?.instrumentalUrl]);
+  useMediaSync({
+    isPlaying,
+    instrumentalUrl: song?.instrumentalUrl,
+    sourceVideoUrl,
+    videoRef,
+    audioRef,
+  });
 
   useEffect(() => {
     return () => {
@@ -330,90 +76,9 @@ export default function SongPage() {
     };
   }, [videoUrl]);
 
-  useEffect(() => {
-    if (activeLyricIndex < 0) {
-      setContainerOffset(0);
-      return;
-    }
-
-    const containerEl = document.getElementById("lyrics-container");
-    const activeEl = lyricRefs.current[activeLyricIndex];
-
-    if (containerEl && activeEl) {
-      const containerHeight = containerEl.offsetHeight;
-      const activeHeight = activeEl.offsetHeight;
-      const activeTop = activeEl.offsetTop;
-
-      // Calculamos cunto debemos mover la lista para que la lnea activa est al centro
-      const targetOffset = (containerHeight / 2) - (activeTop + activeHeight / 2);
-      setContainerOffset(targetOffset);
-    }
-  }, [activeLyricIndex]);
-
-  // Track active word position for the bouncing heart
-  useEffect(() => {
-    const activeLine = lyrics[activeLyricIndex];
-    if (!activeLine) {
-      setHeartPos((prev) => ({ ...prev, opacity: 0 }));
-      return;
-    }
-
-    const activeWordIndex = activeLine.words.findIndex(
-      (w) => currentTime >= w.startTime && currentTime <= w.endTime
-    );
-
-    if (activeWordIndex === -1) {
-      // If no word is strictly active but line is, stay on last word or hide?
-      // Let's just hide it if not strictly active to avoid jumping back
-      return;
-    }
-
-    const wordEl = document.getElementById(`word-${activeLyricIndex}-${activeWordIndex}`);
-    const containerEl = document.getElementById("lyrics-container");
-
-    if (wordEl && containerEl) {
-      const wordRect = wordEl.getBoundingClientRect();
-      const containerRect = containerEl.getBoundingClientRect();
-
-      setHeartPos({
-        x: wordRect.left - containerRect.left + wordRect.width / 2 + containerEl.scrollLeft,
-        y: wordRect.top - containerRect.top - 5 + containerEl.scrollTop,
-        opacity: 1,
-      });
-    } else {
-      setHeartPos((prev) => ({ ...prev, opacity: 0 }));
-    }
-  }, [currentTime, activeLyricIndex, lyrics]);
-
-  const handleSeek = (offset: number) => {
-    const audioEl = audioRef.current;
-    const videoEl = videoRef.current;
-    const media = audioEl ?? videoEl;
-    if (!media) return;
-
-    const canSeekNow = Number.isFinite(media.duration) && media.duration > 0;
-    const mediaDuration = canSeekNow ? media.duration : duration;
-    const next = Math.max(0, Math.min((media.currentTime || 0) + offset, mediaDuration || (media.currentTime || 0) + offset));
-
-    if (!canSeekNow && (media.readyState ?? 0) < 1) {
-      pendingSeekRef.current = next;
-      return;
-    }
-
-    try {
-      if (audioEl) audioEl.currentTime = next;
-    } catch (e) {
-      // ignore
-    }
-
-    try {
-      if (videoEl) videoEl.currentTime = next;
-    } catch (e) {
-      // ignore
-    }
-
-    setCurrentTime(next);
-  };
+  const { containerOffset, setLyricRef } = useLyricsScroll(activeLyricIndex);
+  const { heartPos } = useHeartPosition(currentTime, activeLyricIndex, lyrics);
+  const { handleSeek } = useVideoSeek({ videoRef, audioRef, duration, pendingSeekRef, setCurrentTime });
 
   if (isLoadingSong) {
     return (
@@ -687,52 +352,74 @@ export default function SongPage() {
                 )}
               </div>
 
-              {song?.instrumentalUrl ? (
-                <audio
-                  ref={audioRef}
-                  src={song.instrumentalUrl}
-                  preload="auto"
-                  style={{ display: "none" }}
-                  onCanPlay={() => {
-                    setInstrumentalReady(true);
-                  }}
-                  onLoadedMetadata={(event) => {
-                    const value = event.currentTarget.duration || 0;
-                    setDuration(value);
-                    if (pendingSeekRef.current !== null) {
-                      event.currentTarget.currentTime = pendingSeekRef.current;
-                      setCurrentTime(pendingSeekRef.current);
-                      pendingSeekRef.current = null;
+              <audio
+                ref={audioRef}
+                src={song?.instrumentalUrl ?? undefined}
+                preload={song?.instrumentalUrl ? "auto" : "none"}
+                style={{ display: "none" }}
+                onCanPlay={() => {
+                  if (song?.instrumentalUrl) setInstrumentalReady(true);
+                }}
+                onLoadedMetadata={(event) => {
+                  if (!song?.instrumentalUrl) return;
+                  const value = event.currentTarget.duration || 0;
+                  setDuration(value);
+                  if (pendingSeekRef.current !== null) {
+                    event.currentTarget.currentTime = pendingSeekRef.current;
+                    setCurrentTime(pendingSeekRef.current);
+                    pendingSeekRef.current = null;
+                  }
+                }}
+                onTimeUpdate={(event) => {
+                  if (!song?.instrumentalUrl) return;
+                  const t = event.currentTarget.currentTime;
+                  setCurrentTime(t);
+                  if (
+                    videoRef.current &&
+                    !videoRef.current.seeking &&
+                    Math.abs(videoRef.current.currentTime - t) > SYNC_THRESHOLD_S
+                  ) {
+                    try {
+                      videoRef.current.currentTime = t;
+                    } catch (e) {
+                      // ignore
                     }
-                  }}
-                  onTimeUpdate={(event) => {
-                    const t = event.currentTarget.currentTime;
-                    setCurrentTime(t);
-                    // Increase threshold to 1 second to avoid micro-stutters
-                    if (videoRef.current && Math.abs(videoRef.current.currentTime - t) > 1.0) {
-                      try {
-                        videoRef.current.currentTime = t;
-                      } catch (e) {
-                        // ignore
-                      }
-                    }
-                  }}
-                  onEnded={() => {
-                    setIsPlaying(false);
-                    setShowEndOptions(true);
-                  }}
-                  onError={() => {
-                    setInstrumentalReady(false);
-                  }}
-                />
-              ) : null}
+                  }
+                }}
+                onEnded={() => {
+                  if (!song?.instrumentalUrl) return;
+                  setIsPlaying(false);
+                  setShowEndOptions(true);
+                }}
+                onError={() => {
+                  setInstrumentalReady(false);
+                }}
+              />
 
-              <div className="rounded-[2rem] border-2 border-white/50 bg-white/60 p-6 shadow-sm backdrop-blur-sm">
+              <div
+                className="rounded-[2rem] border-2 border-white/50 bg-white/60 p-6 shadow-sm backdrop-blur-sm outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                role="region"
+                aria-label="Reproductor de karaoke"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.code === "Space") {
+                    e.preventDefault();
+                    setIsPlaying((prev) => !prev);
+                  } else if (e.code === "ArrowLeft") {
+                    e.preventDefault();
+                    handleSeek(-SEEK_OFFSET_S);
+                  } else if (e.code === "ArrowRight") {
+                    e.preventDefault();
+                    handleSeek(SEEK_OFFSET_S);
+                  }
+                }}
+              >
                 <div className="flex flex-wrap items-center justify-center gap-6">
                   <button
                     className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-rose-200 bg-white text-rose-500 transition-all hover:scale-110 hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
                     type="button"
-                    onClick={() => handleSeek(-10)}
+                    aria-label="Retroceder 10 segundos"
+                    onClick={() => handleSeek(-SEEK_OFFSET_S)}
                     disabled={!sourceVideoUrl}
                   >
                     <Rewind className="h-6 w-6" />
@@ -740,6 +427,8 @@ export default function SongPage() {
                   <button
                     className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-r from-rose-400 to-pink-500 text-white shadow-[0_0_20px_rgb(251,113,133,0.5)] transition-all duration-300 hover:scale-110 hover:shadow-[0_0_30px_rgb(251,113,133,0.8)] disabled:opacity-50 disabled:hover:scale-100"
                     type="button"
+                    aria-label={isPlaying ? "Pausar" : "Reproducir"}
+                    aria-pressed={isPlaying}
                     onClick={() => setIsPlaying((prev) => !prev)}
                     disabled={Boolean(!sourceVideoUrl || (sourceVideoUrl && !isVideoReady) || (song?.instrumentalUrl && !instrumentalReady))}
                   >
@@ -754,7 +443,8 @@ export default function SongPage() {
                   <button
                     className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-rose-200 bg-white text-rose-500 transition-all hover:scale-110 hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
                     type="button"
-                    onClick={() => handleSeek(10)}
+                    aria-label="Avanzar 10 segundos"
+                    onClick={() => handleSeek(SEEK_OFFSET_S)}
                     disabled={!sourceVideoUrl}
                   >
                     <FastForward className="h-6 w-6" />
@@ -765,6 +455,11 @@ export default function SongPage() {
                   <input
                     className="mt-4 w-full"
                     type="range"
+                    role="slider"
+                    aria-label="Posición de reproducción"
+                    aria-valuemin={0}
+                    aria-valuemax={Math.round(duration)}
+                    aria-valuenow={Math.round(currentTime)}
                     min={0}
                     max={duration || 0}
                     step={0.1}
@@ -814,8 +509,7 @@ export default function SongPage() {
                     const gap = nextLine.time - currentLine.endTime;
                     const timeLeft = nextLine.time - currentTime;
 
-                    // Solo mostramos cuenta regresiva si el hueco es > 2s y faltan < 3s para empezar
-                    if (gap > 2 && timeLeft > 0 && timeLeft < 3) {
+                    if (gap > COUNTDOWN_SHOW_GAP_S && timeLeft > 0 && timeLeft < COUNTDOWN_SHOW_REMAINING_S) {
                       const dots = Math.ceil(timeLeft);
                       return (
                         <div className="flex justify-center gap-4 py-4 animate-pulse">
@@ -832,14 +526,14 @@ export default function SongPage() {
                     return null;
                   })()}
 
-                  {lyrics.map((line, index) => {
+                  {visibleLyrics.map((line) => {
+                    const index = line.originalIndex;
                     const isActive = index === activeLyricIndex;
                     const distance = Math.abs(index - activeLyricIndex);
 
-                    // Calculamos el nivel de "foco" basado en la distancia
-                    const opacity = index === activeLyricIndex ? 1 : Math.max(0.1, 1 - distance * 0.3);
-                    const scale = index === activeLyricIndex ? 1 : Math.max(0.7, 1 - distance * 0.1);
-                    const blur = index === activeLyricIndex ? 0 : Math.min(4, distance * 1.5);
+                    const opacity = isActive ? 1 : Math.max(LYRICS_FADE_MIN_OPACITY, 1 - distance * LYRICS_FADE_OPACITY_DECAY);
+                    const scale = isActive ? 1 : Math.max(LYRICS_FADE_MIN_SCALE, 1 - distance * LYRICS_FADE_SCALE_DECAY);
+                    const blur = isActive ? 0 : Math.min(LYRICS_BLUR_MAX_PX, distance * LYRICS_BLUR_DECAY);
 
                     const isPast = index < activeLyricIndex;
                     const nextLine = lyrics[index + 1];
@@ -854,9 +548,7 @@ export default function SongPage() {
                     return (
                       <div
                         key={`${line.time}-${line.text}`}
-                        ref={(element) => {
-                          lyricRefs.current[index] = element;
-                        }}
+                        ref={setLyricRef(index)}
                         className={`transition-all duration-700 ease-in-out px-4 py-4`}
                         style={{
                           opacity: opacity,

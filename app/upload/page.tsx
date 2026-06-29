@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useState, useMemo, useEffect } from "react";
 import { CloudUpload, Heart, Sparkles, Music } from "lucide-react";
+import { CHUNK_SIZE_BYTES, POLL_INTERVAL_MS, UPLOAD_MAX_RETRIES } from "../lib/constants";
 
-const CHUNK_SIZE = 3 * 1024 * 1024; // 3MB chunks (more conservative than 5MB)
+const CHUNK_SIZE = CHUNK_SIZE_BYTES;
 
 type UploadState = {
   status: "idle" | "uploading" | "success" | "error";
@@ -37,6 +38,21 @@ const PROCESSING_OPTIONS: Array<{
     description: "Letra siempre al máximo. Instrumental con la mayor fidelidad (más lento).",
   },
 ];
+
+const ALLOWED_MIME_TYPES = [
+  "audio/mpeg", "audio/mp4", "audio/ogg", "audio/wav", "audio/webm", "audio/flac",
+  "audio/x-m4a", "audio/aac",
+  "video/mp4", "video/webm", "video/ogg", "video/quicktime", "video/x-matroska",
+];
+
+async function uploadChunk(formData: FormData, attempt = 0): Promise<Response> {
+  const response = await fetch("/api/upload", { method: "POST", body: formData });
+  if (!response.ok && attempt < UPLOAD_MAX_RETRIES) {
+    await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    return uploadChunk(formData, attempt + 1);
+  }
+  return response;
+}
 
 /**
  * Upload file in sequential chunks (faster than single upload, more stable than parallel)
@@ -96,13 +112,10 @@ async function uploadFileInChunks(
     formData.append("generate_instrumental", String(generateInstrumental));
 
     try {
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
+      const response = await uploadChunk(formData);
 
       if (!response.ok) {
-        throw new Error(`Chunk ${chunkIndex} failed: ${await response.text()}`);
+        throw new Error(`Chunk ${chunkIndex} fallido después de ${UPLOAD_MAX_RETRIES} intentos.`);
       }
 
       const totalUploaded = end;
@@ -150,8 +163,8 @@ export default function UploadPage() {
   // Fetch existing artists once on mount
   useEffect(() => {
     fetch("/api/artists")
-      .then((r) => r.json())
-      .then((data: string[]) => setAllArtists(data))
+      .then((r) => { if (!r.ok) return undefined; return r.json(); })
+      .then((data?: string[]) => { if (data) setAllArtists(data); })
       .catch(() => {});
   }, []);
 
@@ -176,7 +189,7 @@ export default function UploadPage() {
   useEffect(() => {
     if (!pollingJobId) return;
 
-    const interval = setInterval(async () => {
+    const checkStatus = async () => {
       try {
         const response = await fetch(`/api/jobs/${pollingJobId}`, { cache: "no-store" });
         if (!response.ok) return;
@@ -222,7 +235,10 @@ export default function UploadPage() {
       } catch (err) {
         console.error("Polling error:", err);
       }
-    }, 5000);
+    };
+
+    checkStatus(); // Check inmediato, sin esperar los 5s
+    const interval = setInterval(checkStatus, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [pollingJobId]);
@@ -230,6 +246,14 @@ export default function UploadPage() {
   const handleUpload = async () => {
     if (!selectedFile) {
       setUploadState({ status: "error", message: "Selecciona un archivo." });
+      return;
+    }
+
+    if (!ALLOWED_MIME_TYPES.includes(selectedFile.type)) {
+      setUploadState({
+        status: "error",
+        message: `Tipo de archivo no soportado: "${selectedFile.type}". Sube un archivo de audio o video válido.`,
+      });
       return;
     }
 

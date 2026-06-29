@@ -1,18 +1,7 @@
 import { NextResponse } from "next/server";
+import { BACKEND_URL, normalizeUrl } from "@/app/lib/catalog";
 
 export const dynamic = "force-dynamic";
-
-const BACKEND_URL = (
-  process.env.BACKEND_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  ""
-).replace(/\/+$/, "");
-
-const normalizeUrl = (value: unknown) => {
-  if (typeof value !== "string" || !value) return undefined;
-  if (value.startsWith("http")) return value;
-  return BACKEND_URL ? `${BACKEND_URL}${value}` : value;
-};
 
 export async function GET(
   _request: Request,
